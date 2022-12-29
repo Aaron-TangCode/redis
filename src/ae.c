@@ -68,7 +68,9 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
 
     monotonicInit();    /* just in case the calling app didn't initialize */
 
+    //第一步，aeCreateEventLoop 函数会创建一个 aeEventLoop 结构体类型的变量 eventLoop
     if ((eventLoop = zmalloc(sizeof(*eventLoop))) == NULL) goto err;
+    //给IO事件、已触发事件分配内存空间
     eventLoop->events = zmalloc(sizeof(aeFileEvent)*setsize);
     eventLoop->fired = zmalloc(sizeof(aeFiredEvent)*setsize);
     if (eventLoop->events == NULL || eventLoop->fired == NULL) goto err;
@@ -80,9 +82,11 @@ aeEventLoop *aeCreateEventLoop(int setsize) {
     eventLoop->beforesleep = NULL;
     eventLoop->aftersleep = NULL;
     eventLoop->flags = 0;
+    //第二步，aeCreateEventLoop 函数会调用 aeApiCreate 函数.//调用aeApiCreate函数，去实际调用操作系统提供的IO多路复用函数
     if (aeApiCreate(eventLoop) == -1) goto err;
     /* Events with mask == AE_NONE are not set. So let's initialize the
      * vector with it. */
+    //第三步，aeCreateEventLoop 函数会把所有网络 IO 事件对应文件描述符的掩码，初始化为 AE_NONE，表示暂时不对任何事件进行监听。
     for (i = 0; i < setsize; i++)
         eventLoop->events[i].mask = AE_NONE;
     return eventLoop;

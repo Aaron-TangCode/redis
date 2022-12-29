@@ -100,13 +100,13 @@ typedef struct aeEventLoop {
     int maxfd;   /* highest file descriptor currently registered */
     int setsize; /* max number of file descriptors tracked */
     long long timeEventNextId;
-    aeFileEvent *events; /* Registered events */
-    aeFiredEvent *fired; /* Fired events */
-    aeTimeEvent *timeEventHead;
+    aeFileEvent *events; /* Registered events */// io事件
+    aeFiredEvent *fired; /* Fired events */  //记录已触发事件对应的文件描述符信息
+    aeTimeEvent *timeEventHead;   //时间事件，就是按照一定时间周期触发的事件
     int stop;
     void *apidata; /* This is used for polling API specific data */
-    aeBeforeSleepProc *beforesleep;
-    aeBeforeSleepProc *aftersleep;
+    aeBeforeSleepProc *beforesleep;   //进入事件循环流程前执行的函数
+    aeBeforeSleepProc *aftersleep;   //退出事件循环流程后执行的函数
     int flags;
 } aeEventLoop;
 

@@ -2053,6 +2053,7 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
      *
      * Note that you can change the resolution altering the
      * LRU_CLOCK_RESOLUTION define. */
+    //定期更新lruclock
     unsigned int lruclock = getLRUClock();
     atomicSet(server.lruclock,lruclock);
 
@@ -2427,7 +2428,7 @@ void afterSleep(struct aeEventLoop *eventLoop) {
 }
 
 /* =========================== Server initialization ======================== */
-
+//创建共享对象的函数
 void createSharedObjects(void) {
     int j;
 
@@ -3068,6 +3069,9 @@ void initServer(void) {
     adjustOpenFilesLimit();
     const char *clk_msg = monotonicInit();
     serverLog(LL_NOTICE, "monotonic clock: %s", clk_msg);
+    //创建事件循环框架
+    //server.maxclients 在redis.conf中默认为10000
+    //CONFIG_FDSET_INCR=32+96
     server.el = aeCreateEventLoop(server.maxclients+CONFIG_FDSET_INCR);
     if (server.el == NULL) {
         serverLog(LL_WARNING,
@@ -3105,11 +3109,16 @@ void initServer(void) {
 
     /* Create the Redis databases, and initialize other internal state. */
     for (j = 0; j < server.dbnum; j++) {
+        //创建全局哈希表
         server.db[j].dict = dictCreate(&dbDictType,NULL);
+        //创建过期key的信息表
         server.db[j].expires = dictCreate(&dbExpiresDictType,NULL);
         server.db[j].expires_cursor = 0;
+        //为被BLPOP阻塞的key创建信息表
         server.db[j].blocking_keys = dictCreate(&keylistDictType,NULL);
+        //为将执行PUSH的阻塞key创建信息表
         server.db[j].ready_keys = dictCreate(&objectKeyPointerValueDictType,NULL);
+        //为被MULTI/WATCH操作监听的key创建信息表
         server.db[j].watched_keys = dictCreate(&keylistDictType,NULL);
         server.db[j].id = j;
         server.db[j].avg_ttl = 0;
@@ -3169,6 +3178,7 @@ void initServer(void) {
     /* Create the timer callback, this is our way to process many background
      * operations incrementally, like clients timeout, eviction of unaccessed
      * expired keys and so forth. */
+    //为server后台任务创建定时事件
     if (aeCreateTimeEvent(server.el, 1, serverCron, NULL, NULL) == AE_ERR) {
         serverPanic("Can't create event loop timers.");
         exit(1);
@@ -3176,6 +3186,7 @@ void initServer(void) {
 
     /* Create an event handler for accepting new connections in TCP and Unix
      * domain sockets. */
+    //为每一个监听的IP设置连接事件的处理函数acceptTcpHandler
     for (j = 0; j < server.ipfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.ipfd[j], AE_READABLE,
             acceptTcpHandler,NULL) == AE_ERR)
@@ -3184,6 +3195,7 @@ void initServer(void) {
                     "Unrecoverable error creating server.ipfd file event.");
             }
     }
+    //为每一个监听的IP设置连接事件的处理函数acceptTcpHandler
     for (j = 0; j < server.tlsfd_count; j++) {
         if (aeCreateFileEvent(server.el, server.tlsfd[j], AE_READABLE,
             acceptTLSHandler,NULL) == AE_ERR)
@@ -3245,7 +3257,7 @@ void initServer(void) {
  * see: https://sourceware.org/bugzilla/show_bug.cgi?id=19329 */
 void InitServerLast() {
     bioInit();
-    initThreadedIO();
+    initThreadedIO();//调用initThreadedIO函数初始化IO线程
     set_jemalloc_bg_thread(server.jemalloc_bg_thread);
     server.initial_memory_usage = zmalloc_used_memory();
 }
@@ -3801,13 +3813,13 @@ static int cmdHasMovableKeys(struct redisCommand *cmd) {
  * other operations can be performed by the caller. Otherwise
  * if C_ERR is returned the client was destroyed (i.e. after QUIT). */
 int processCommand(client *c) {
-    moduleCallCommandFilters(c);
+    moduleCallCommandFilters(c);//Redis 命令替换成 module 中想要替换的命令
 
     /* The QUIT command is handled separately. Normal command procs will
      * go through checking for replication and QUIT will cause trouble
      * when FORCE_REPLICATION is enabled and would be implemented in
      * a regular command proc. */
-    if (!strcasecmp(c->argv[0]->ptr,"quit")) {
+    if (!strcasecmp(c->argv[0]->ptr,"quit")) {//函数会判断当前命令是否为 quit 命令，并进行相应处理
         addReply(c,shared.ok);
         c->flags |= CLIENT_CLOSE_AFTER_REPLY;
         return C_ERR;
@@ -3815,6 +3827,7 @@ int processCommand(client *c) {
 
     /* Now lookup the command and check ASAP about trivial error conditions
      * such as wrong arity, bad command name and so forth. */
+    //在全局变量 server 的 commands 成员变量中查找相关的命令
     c->cmd = c->lastcmd = lookupCommand(c->argv[0]->ptr);
     if (!c->cmd) {
         sds args = sdsempty();
@@ -3919,6 +3932,7 @@ int processCommand(client *c) {
          * However, we never want to reject DISCARD, or even EXEC (unless it
          * contains denied commands, in which case is_denyoom_command is already
          * set. */
+        //如果客户端有CLIENT_MULTI标记，并且当前不是exec、discard、multi和watch命令
         if (c->flags & CLIENT_MULTI &&
             c->cmd->proc != execCommand &&
             c->cmd->proc != discardCommand &&
@@ -4050,17 +4064,17 @@ int processCommand(client *c) {
         blockClient(c,BLOCKED_PAUSE);
         return C_OK;       
     }
-
+    //如果客户端有CLIENT_MULTI标记，并且当前不是exec、discard、multi和watch命令
     /* Exec the command */
     if (c->flags & CLIENT_MULTI &&
         c->cmd->proc != execCommand && c->cmd->proc != discardCommand &&
         c->cmd->proc != multiCommand && c->cmd->proc != watchCommand &&
         c->cmd->proc != resetCommand)
     {
-        queueMultiCommand(c);
+        queueMultiCommand(c);//将命令入队保存，等待后续一起处理
         addReply(c,shared.queued);
     } else {
-        call(c,CMD_CALL_FULL);
+        call(c,CMD_CALL_FULL);//调用call函数执行命令
         c->woff = server.master_repl_offset;
         if (listLength(server.ready_keys))
             handleClientsBlockedOnKeys();
@@ -5298,11 +5312,12 @@ void daemonize(void) {
     int fd;
 
     if (fork() != 0) exit(0); /* parent exits */
-    setsid(); /* create a new session */
+    setsid(); /* create a new session *///为子进程创建新的session
 
     /* Every output goes to /dev/null. If Redis is daemonized but
      * the 'logfile' is set to 'stdout' in the configuration file
      * it will not log at all. */
+    //将子进程的标准输入、标准输出、标准错误输出重定向到/dev/null中
     if ((fd = open("/dev/null", O_RDWR, 0)) != -1) {
         dup2(fd, STDIN_FILENO);
         dup2(fd, STDOUT_FILENO);
@@ -5711,6 +5726,7 @@ int main(int argc, char **argv) {
     char config_from_stdin = 0;
 
 #ifdef REDIS_TEST
+    ////如果启动参数有test和ziplist，那么就调用ziplistTest函数进行ziplist的测试
     if (argc == 3 && !strcasecmp(argv[1], "test")) {
         if (!strcasecmp(argv[2], "ziplist")) {
             return ziplistTest(argc, argv);
@@ -5742,6 +5758,7 @@ int main(int argc, char **argv) {
 #ifdef INIT_SETPROCTITLE_REPLACEMENT
     spt_init(argc, argv);
 #endif
+    //设置时区
     setlocale(LC_COLLATE,"");
     tzset(); /* Populates 'timezone' global. */
     zmalloc_set_oom_handler(redisOutOfMemoryHandler);
@@ -5751,10 +5768,12 @@ int main(int argc, char **argv) {
     init_genrand64(((long long) tv.tv_sec * 1000000 + tv.tv_usec) ^ getpid());
     crc64_init();
 
+    //设置随机种子
     uint8_t hashseed[16];
     getRandomBytes(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed(hashseed);
     server.sentinel_mode = checkForSentinelMode(argc,argv);
+    //初始化server配置信息：默认值
     initServerConfig();
     ACLInit(); /* The ACL subsystem must be initialized ASAP because the
                   basic networking code and client creation depends on it. */
@@ -5766,11 +5785,13 @@ int main(int argc, char **argv) {
     server.executable = getAbsolutePath(argv[0]);
     server.exec_argv = zmalloc(sizeof(char*)*(argc+1));
     server.exec_argv[argc] = NULL;
+    //保存命令行参数
     for (j = 0; j < argc; j++) server.exec_argv[j] = zstrdup(argv[j]);
 
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    //阶段二：检查哨兵模式，并检查是否要执行 RDB 检测或 AOF 检测
     if (server.sentinel_mode) {
         initSentinelConfig();
         initSentinel();
@@ -5814,7 +5835,7 @@ int main(int argc, char **argv) {
             server.exec_argv[1] = zstrdup(server.configfile);
             j = 2; // Skip this arg when parsing options
         }
-
+        //对每个运行时参数进行解析
         while(j < argc) {
             /* Either first or last argument - Should we read config from stdin? */
             if (argv[j][0] == '-' && argv[j][1] == '\0' && (j == 1 || j == argc-1)) {
@@ -5842,11 +5863,13 @@ int main(int argc, char **argv) {
                 "Sentinel needs config file on disk to save state.  Exiting...");
             exit(1);
         }
+        //运行参数解析
         loadServerConfig(server.configfile, config_from_stdin, options);
         sdsfree(options);
     }
 
     server.supervised = redisIsSupervised(server.supervised_mode);
+    //守护进程
     int background = server.daemonize && !server.supervised;
     if (background) daemonize();
 
@@ -5866,12 +5889,14 @@ int main(int argc, char **argv) {
     }
 
     readOOMScoreAdj();
+    //初始化server
     initServer();
     if (background || server.pidfile) createPidFile();
     redisSetProcTitle(argv[0]);
     redisAsciiArt();
     checkTcpBacklogSettings();
 
+    //再次判断是否为哨兵模式
     if (!server.sentinel_mode) {
         /* Things not needed when running in Sentinel mode. */
         serverLog(LL_WARNING,"Server initialized");
@@ -5891,6 +5916,7 @@ int main(int argc, char **argv) {
         moduleLoadFromQueue();
         ACLLoadUsersAtStartup();
         InitServerLast();
+        //从磁盘加载AOF或RDB文件，以便恢复之前的数据
         loadDataFromDisk();
         if (server.cluster_enabled) {
             if (verifyClusterConfigWithData() == C_ERR) {
@@ -5930,6 +5956,7 @@ int main(int argc, char **argv) {
     redisSetCpuAffinity(server.server_cpulist);
     setOOMScoreAdj(-1);
 
+    //执行事件驱动框架
     aeMain(server.el);
     aeDeleteEventLoop(server.el);
     return 0;

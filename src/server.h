@@ -653,13 +653,14 @@ typedef struct RedisModuleDigest {
 #define OBJ_STATIC_REFCOUNT (INT_MAX-1) /* Object allocated in the stack. */
 #define OBJ_FIRST_SPECIAL_REFCOUNT OBJ_STATIC_REFCOUNT
 typedef struct redisObject {
-    unsigned type:4;
-    unsigned encoding:4;
-    unsigned lru:LRU_BITS; /* LRU time (relative to global lru_clock) or
+    unsigned type:4;//redisObject 的数据类型，是应用程序在 Redis 中保存的数据类型，包括 String、List、Hash、Set、ZSet等  4个bits  unsigned 4个字节
+    unsigned encoding:4;//redisObject 的编码类型，是 Redis 内部实现各种数据类型所用的数据结构。  4个bits    比如有:ziplist skiplist intset hashtable等
+    unsigned lru:LRU_BITS; /* redisObject 的 LRU 时间   LRU_BITS为24个bits
+ * LRU time (relative to global lru_clock) or
                             * LFU data (least significant 8 bits frequency
                             * and most significant 16 bits access time). */
-    int refcount;
-    void *ptr;
+    int refcount;//redisObject 的引用计数   4个字节
+    void *ptr;//指向值的指针。  8个字节
 } robj;
 
 /* The a string name for an object's type as listed above
@@ -975,7 +976,7 @@ typedef struct zskiplist {
     unsigned long length;
     int level;
 } zskiplist;
-
+//zset 底层编码类型是：hashtable,跳表
 typedef struct zset {
     dict *dict;
     zskiplist *zsl;

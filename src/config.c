@@ -690,6 +690,7 @@ void loadServerConfig(char *filename, char config_from_stdin, char *options) {
         config = sdscat(config,"\n");
         config = sdscat(config,options);
     }
+    //对配置项字符串中的每一个配置项进行匹配
     loadServerConfigFromString(config);
     sdsfree(config);
 }

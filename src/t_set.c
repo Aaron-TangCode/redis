@@ -51,7 +51,7 @@ robj *setTypeCreate(sds value) {
  * returned, otherwise the new element is added and 1 is returned. */
 int setTypeAdd(robj *subject, sds value) {
     long long llval;
-    if (subject->encoding == OBJ_ENCODING_HT) {
+    if (subject->encoding == OBJ_ENCODING_HT) {//hashtable
         dict *ht = subject->ptr;
         dictEntry *de = dictAddRaw(ht,value,NULL);
         if (de) {
@@ -59,7 +59,7 @@ int setTypeAdd(robj *subject, sds value) {
             dictSetVal(ht,de,NULL);
             return 1;
         }
-    } else if (subject->encoding == OBJ_ENCODING_INTSET) {
+    } else if (subject->encoding == OBJ_ENCODING_INTSET) {//intset
         if (isSdsRepresentableAsLongLong(value,&llval) == C_OK) {
             uint8_t success = 0;
             subject->ptr = intsetAdd(subject->ptr,llval,&success);

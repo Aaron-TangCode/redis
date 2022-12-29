@@ -37,16 +37,21 @@
 #endif
 
 /* ===================== Creation and parsing of objects ==================== */
-
+//有一个就是用来表示所要创建的数据对象类型，而另一个是指向数据对象的指针
 robj *createObject(int type, void *ptr) {
+    //给redisObject结构体分配空间
     robj *o = zmalloc(sizeof(*o));
+    //设置redisObject的类型
     o->type = type;
+    //设置redisObject的编码类型，此处是OBJ_ENCODING_RAW，表示常规的SDS
     o->encoding = OBJ_ENCODING_RAW;
     o->ptr = ptr;
+    //直接将传入的指针赋值给redisObject中的指针。
     o->refcount = 1;
 
     /* Set the LRU to the current lruclock (minutes resolution), or
      * alternatively the LFU counter. */
+    //如果缓存替换策略是LFU，那么将lru变量设置为LFU的计数值
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
         o->lru = (LFUGetTimeInMinutes()<<8) | LFU_INIT_VAL;
     } else {
@@ -81,12 +86,17 @@ robj *createRawStringObject(const char *ptr, size_t len) {
 /* Create a string object with encoding OBJ_ENCODING_EMBSTR, that is
  * an object where the sds string is actually an unmodifiable string
  * allocated in the same chunk as the object itself. */
+//入参：字符串指针 ptr，以及字符串长度 len
+//嵌入式字符串的优点：内存分配一次，避免内存碎片
+//结构：redisObject结构体 | sdshdr8(字符串结构头)  | 字符串 | \0
 robj *createEmbeddedStringObject(const char *ptr, size_t len) {
-    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);
+    robj *o = zmalloc(sizeof(robj)+sizeof(struct sdshdr8)+len+1);//最后的+！是指结束字符\0
+    //创建 SDS 结构的指针 sh，并把 sh 指向这块连续空间中 SDS 结构头所在的位置，下面的代码显示了这步操作。其中，o 是 redisObject 结构体的变量，o+1 表示将内存地址从变量 o 开始移动一段距离，而移动的距离等于 redisObject 这个结构体的大小
     struct sdshdr8 *sh = (void*)(o+1);
 
     o->type = OBJ_STRING;
     o->encoding = OBJ_ENCODING_EMBSTR;
+    //把 redisObject 中的指针 ptr，指向 SDS 结构中的字符数组。
     o->ptr = sh+1;
     o->refcount = 1;
     if (server.maxmemory_policy & MAXMEMORY_FLAG_LFU) {
@@ -101,6 +111,7 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
     if (ptr == SDS_NOINIT)
         sh->buf[len] = '\0';
     else if (ptr) {
+        //把参数中传入的指针 ptr 指向的字符串，拷贝到 SDS 结构体中的字符数组，并在数组最后添加结束字符
         memcpy(sh->buf,ptr,len);
         sh->buf[len] = '\0';
     } else {
@@ -118,8 +129,10 @@ robj *createEmbeddedStringObject(const char *ptr, size_t len) {
 #define OBJ_ENCODING_EMBSTR_SIZE_LIMIT 44
 robj *createStringObject(const char *ptr, size_t len) {
     if (len <= OBJ_ENCODING_EMBSTR_SIZE_LIMIT)
+        //创建嵌入式字符串，字符串长度小于等于44字节
         return createEmbeddedStringObject(ptr,len);
     else
+        //创建普通字符串，字符串长度大于44字节
         return createRawStringObject(ptr,len);
 }
 
