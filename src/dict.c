@@ -369,29 +369,30 @@ static dictEntry *dictGenericDelete(dict *d, const void *key, int nofree) {
     if (d->ht[0].used == 0 && d->ht[1].used == 0) return NULL;
 
     if (dictIsRehashing(d)) _dictRehashStep(d);
-    h = dictHashKey(d, key);
+    h = dictHashKey(d, key);//计算key的哈希值
 
     for (table = 0; table <= 1; table++) {
-        idx = h & d->ht[table].sizemask;
-        he = d->ht[table].table[idx];
+        idx = h & d->ht[table].sizemask;  //根据key的哈希值获取它所在的哈希桶编号
+        he = d->ht[table].table[idx];  //获取key所在哈希桶的第一个哈希项
         prevHe = NULL;
         while(he) {
+            //在哈希桶中逐一查找被删除的key是否存在
             if (key==he->key || dictCompareKeys(d, key, he->key)) {
                 /* Unlink the element from the list */
                 if (prevHe)
                     prevHe->next = he->next;
                 else
                     d->ht[table].table[idx] = he->next;
-                if (!nofree) {
-                    dictFreeKey(d, he);
-                    dictFreeVal(d, he);
-                    zfree(he);
+                if (!nofree) {//如果要同步删除，那么就释放key和value的内存空间
+                    dictFreeKey(d, he); //调用dictFreeKey释放
+                    dictFreeVal(d, he); //释放val
+                    zfree(he); //释放entry键值对
                 }
                 d->ht[table].used--;
                 return he;
             }
             prevHe = he;
-            he = he->next;
+            he = he->next;  //当前key不是要查找的key，再找下一个
         }
         if (!dictIsRehashing(d)) break;
     }

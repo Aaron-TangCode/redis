@@ -267,7 +267,7 @@ void setTypeConvert(robj *setobj, int enc) {
 void saddCommand(client *c) {
     robj *set;
     int j, added = 0;
-
+    //查找是否存在这个key
     set = lookupKeyWrite(c->db,c->argv[1]);
     if (set == NULL) {
         set = setTypeCreate(c->argv[2]->ptr);

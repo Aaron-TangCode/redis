@@ -627,7 +627,7 @@ int startBgsaveForReplication(int mincapa) {
 
 /* SYNC and PSYNC command implemenation. */
 void syncCommand(client *c) {
-    /* ignore SYNC if already slave or in monitor mode */
+    /* ignore SYNC if already slave osyncCommandr in monitor mode */
     if (c->flags & CLIENT_SLAVE) return;
 
     /* Refuse SYNC requests if we are a slave but the link with our master
@@ -752,6 +752,7 @@ void syncCommand(client *c) {
              * diskless replication) and we don't have a BGSAVE in progress,
              * let's start one. */
             if (server.aof_child_pid == -1) {
+                //核心：用于在主从复制时，创建RDB文件的函数
                 startBgsaveForReplication(c->slave_capa);
             } else {
                 serverLog(LL_NOTICE,

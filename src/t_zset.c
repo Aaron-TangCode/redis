@@ -1327,7 +1327,7 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         *flags = ZADD_NAN;
         return 0;
     }
-
+    //判断zset用ziplist 还是用 zskiplist
     /* Update the sorted set according to its encoding. */
     if (zobj->encoding == OBJ_ENCODING_ZIPLIST) {
         unsigned char *eptr;
@@ -1382,17 +1382,20 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
         zset *zs = zobj->ptr;
         zskiplistNode *znode;
         dictEntry *de;
-
+        //zsetAdd 函数会先使用哈希表的 dictFind 函数，查找要插入的元素是否存在
         de = dictFind(zs->dict,ele);
+        //如果能查询到该元素
         if (de != NULL) {
             /* NX? Return, same element already exists. */
             if (nx) {
                 *flags |= ZADD_NOP;
                 return 1;
             }
+            //从哈希表中查询元素的权重
             curscore = *(double*)dictGetVal(de);
 
             /* Prepare the score for the increment if needed. */
+            //如果要更新元素权重值
             if (incr) {
                 score += curscore;
                 if (isnan(score)) {
@@ -1403,18 +1406,23 @@ int zsetAdd(robj *zobj, double score, sds ele, int *flags, double *newscore) {
             }
 
             /* Remove and re-insert when score changes. */
+            //如果权重发生变化了
             if (score != curscore) {
+                //更新跳表结点
                 znode = zslUpdateScore(zs->zsl,curscore,ele,score);
                 /* Note that we did not removed the original element from
                  * the hash table representing the sorted set, so we just
                  * update the score. */
+                //让哈希表元素的值指向跳表结点的权重
                 dictGetVal(de) = &znode->score; /* Update score ptr. */
                 *flags |= ZADD_UPDATED;
             }
             return 1;
         } else if (!xx) {
             ele = sdsdup(ele);
+            //插入跳表
             znode = zslInsert(zs->zsl,score,ele);
+            //插入hash表
             serverAssert(dictAdd(zs->dict,ele,&znode->score) == DICT_OK);
             *flags |= ZADD_ADDED;
             if (newscore) *newscore = score;
@@ -1631,6 +1639,7 @@ void zaddGenericCommand(client *c, int flags) {
         int retflags = flags;
 
         ele = c->argv[scoreidx+1+j*2]->ptr;
+        //添加元素到zset中
         int retval = zsetAdd(zobj, score, ele, &retflags, &newscore);
         if (retval == 0) {
             addReplyError(c,nanerr);

@@ -271,7 +271,9 @@ robj *dbRandomKey(redisDb *db) {
 int dbSyncDelete(redisDb *db, robj *key) {
     /* Deleting an entry from the expires dict will not free the sds of
      * the key, because it is shared with the main dictionary. */
+    //在过期 key 的哈希表中删除被淘汰的键值对
     if (dictSize(db->expires) > 0) dictDelete(db->expires,key->ptr);
+    //全局哈希表中删除被淘汰的键值对
     if (dictDelete(db->dict,key->ptr) == DICT_OK) {
         if (server.cluster_enabled) slotToKeyDel(key);
         return 1;
@@ -1112,14 +1114,20 @@ long long getExpire(redisDb *db, robj *key) {
  * keys. */
 void propagateExpire(redisDb *db, robj *key, int lazy) {
     robj *argv[2];
-
+    //如果 lazyfree_lazy_eviction 被设置为 1，也就是启用了缓存淘汰时的惰性删除，那么，删除操作对应的命令就是 UNLINK；否则的话，命令就是 DEL
     argv[0] = lazy ? shared.unlink : shared.del;
     argv[1] = key;
     incrRefCount(argv[0]);
     incrRefCount(argv[1]);
 
+    /**
+     * propagateExpire 函数会判断 Redis server 是否启用了 AOF 日志。
+     * 如果启用了，那么 propagateExpire 函数会先把被淘汰 key 的删除操作记录到 AOF 文件中，
+     * 以保证后续使用 AOF 文件进行 Redis 数据库恢复时，可以和恢复前保持一致
+     */
     if (server.aof_state != AOF_OFF)
         feedAppendOnlyFile(server.delCommand,db->id,argv,2);
+    //把删除操作同步给从节点，以保证主从节点的数据一致
     replicationFeedSlaves(server.slaves,db->id,argv,2);
 
     decrRefCount(argv[0]);
