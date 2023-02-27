@@ -963,6 +963,7 @@ void configSetCommand(client *c) {
         if (enable == 0 && server.aof_state != AOF_OFF) {
             stopAppendOnly();
         } else if (enable && server.aof_state == AOF_OFF) {
+            //执行AOF重写
             if (startAppendOnly() == C_ERR) {
                 addReplyError(c,
                     "Unable to turn on AOF. Check server logs.");

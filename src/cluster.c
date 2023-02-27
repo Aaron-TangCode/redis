@@ -1822,6 +1822,7 @@ int clusterProcessPacket(clusterLink *link) {
             clusterProcessGossipSection(hdr,link);
 
         /* Anyway reply with a PONG */
+        //核心：回复PONG消息给节点(发送ping消息的节点)。
         clusterSendPing(link,CLUSTERMSG_TYPE_PONG);
     }
 
@@ -1902,6 +1903,7 @@ int clusterProcessPacket(clusterLink *link) {
 
         /* Update our info about the node */
         if (link->node && type == CLUSTERMSG_TYPE_PONG) {
+            //当收到Pong消息时，更新本地记录的目标节点Pong消息最新返回时间
             link->node->pong_received = now;
             link->node->ping_sent = 0;
 
@@ -2231,6 +2233,7 @@ void clusterReadHandler(aeEventLoop *el, int fd, void *privdata, int mask) {
 
         /* Total length obtained? Process this packet. */
         if (rcvbuflen >= 8 && rcvbuflen == ntohl(hdr->totlen)) {
+            //核心：clusterProcessPacket
             if (clusterProcessPacket(link)) {
                 sdsfree(link->rcvbuf);
                 link->rcvbuf = sdsempty();
@@ -2387,6 +2390,7 @@ void clusterSetGossipEntry(clusterMsg *hdr, int i, clusterNode *n) {
 
 /* Send a PING or PONG packet to the specified node, making sure to add enough
  * gossip informations. */
+//Ping 和 Pong 消息使用的是同一个函数 clusterSendPing 来生成和发送的，所以它们包含的内容也是相同的
 void clusterSendPing(clusterLink *link, int type) {
     unsigned char *buf;
     clusterMsg *hdr;
@@ -2447,10 +2451,12 @@ void clusterSendPing(clusterLink *link, int type) {
     /* Populate the header. */
     if (link->node && type == CLUSTERMSG_TYPE_PING)
         link->node->ping_sent = mstime();
+    //构建 Ping 消息头
     clusterBuildMessageHdr(hdr,type);
 
     /* Populate the gossip fields */
     int maxiterations = wanted*3;
+    //构建消息体
     while(freshnodes > 0 && gossipcount < wanted && maxiterations--) {
         dictEntry *de = dictGetRandomKey(server.cluster->nodes);
         clusterNode *this = dictGetVal(de);
@@ -2478,11 +2484,12 @@ void clusterSendPing(clusterLink *link, int type) {
         if (clusterNodeIsInGossipSection(hdr,gossipcount,this)) continue;
 
         /* Add it */
-        clusterSetGossipEntry(hdr,gossipcount,this);
+        clusterSetGossipEntry(hdr,gossipcount,this);//调用clusterSetGossipEntry设置Ping消息体 freshnodes--; gossipcount++;}
         freshnodes--;
         gossipcount++;
     }
 
+    //如果是可能失败的节点，就把它们放在最后
     /* If there are PFAIL nodes, add them at the end. */
     if (pfail_wanted) {
         dictIterator *di;
@@ -2494,7 +2501,7 @@ void clusterSendPing(clusterLink *link, int type) {
             if (node->flags & CLUSTER_NODE_HANDSHAKE) continue;
             if (node->flags & CLUSTER_NODE_NOADDR) continue;
             if (!(node->flags & CLUSTER_NODE_PFAIL)) continue;
-            clusterSetGossipEntry(hdr,gossipcount,node);
+            clusterSetGossipEntry(hdr,gossipcount,node);//调用clusterSetGossipEntry设置Ping消息体 freshnodes--; gossipcount++;}
             freshnodes--;
             gossipcount++;
             /* We take the count of the slots we allocated, since the
@@ -2511,6 +2518,7 @@ void clusterSendPing(clusterLink *link, int type) {
     totlen += (sizeof(clusterMsgDataGossip)*gossipcount);
     hdr->count = htons(gossipcount);
     hdr->totlen = htonl(totlen);
+    //发送消息
     clusterSendMessage(link,buf,totlen);
     zfree(buf);
 }
@@ -3440,9 +3448,11 @@ void clusterCron(void) {
                     node->cport, server.neterr);
                 continue;
             }
+            //建立链接
             link = createClusterLink(node);
             link->fd = fd;
             node->link = link;
+            //设置回调函数clusterReadHandler，就是在节点收到ping消息时的处理函数
             aeCreateFileEvent(server.el,link->fd,AE_READABLE,
                     clusterReadHandler,link);
             /* Queue a PING in the new connection ASAP: this is crucial
@@ -3475,26 +3485,30 @@ void clusterCron(void) {
 
     /* Ping some random node 1 time every 10 iterations, so that we usually ping
      * one random node every second. */
-    if (!(iteration % 10)) {
+    if (!(iteration % 10)) {//每执行10次clusterCron函数，执行1次该分支代码，其实就是1秒执行一次
         int j;
 
         /* Check a few random nodes and ping the one with the oldest
          * pong_received time. */
-        for (j = 0; j < 5; j++) {
+        for (j = 0; j < 5; j++) {//随机选5个节点
             de = dictGetRandomKey(server.cluster->nodes);
             clusterNode *this = dictGetVal(de);
 
+            //不 向断连的节点、当前节点和正在握手的节点发送Ping消息
             /* Don't ping nodes disconnected or with a ping currently active. */
             if (this->link == NULL || this->ping_sent != 0) continue;
             if (this->flags & (CLUSTER_NODE_MYSELF|CLUSTER_NODE_HANDSHAKE))
                 continue;
+            //遴选向当前节点发送Pong消息最早的节点
             if (min_pong_node == NULL || min_pong > this->pong_received) {
                 min_pong_node = this;
                 min_pong = this->pong_received;
             }
         }
+        //如果遴选出了最早向当前节点发送Pong消息的节点，那么调用clusterSendPing函数向该节点发送Ping消息
         if (min_pong_node) {
             serverLog(LL_DEBUG,"Pinging node %.40s", min_pong_node->name);
+            //发送ping消息
             clusterSendPing(min_pong_node->link, CLUSTERMSG_TYPE_PING);
         }
     }

@@ -252,7 +252,7 @@ struct redisCommand redisCommandTable[] = {
     {"multi",multiCommand,1,"sF",0,NULL,0,0,0,0,0},
     {"exec",execCommand,1,"sM",0,NULL,0,0,0,0,0},
     {"discard",discardCommand,1,"sF",0,NULL,0,0,0,0,0},
-    {"sync",,1,"ars",0,NULL,0,0,0,0,0},
+    {"sync",syncCommand,1,"ars",0,NULL,0,0,0,0,0},
     {"psync",syncCommand,3,"ars",0,NULL,0,0,0,0,0},
     {"replconf",replconfCommand,-1,"aslt",0,NULL,0,0,0,0,0},
     {"flushdb",flushdbCommand,-1,"w",0,NULL,0,0,0,0,0},
@@ -1107,7 +1107,7 @@ void updateCachedTime(int update_daylight_info) {
  * so in order to throttle execution of things we want to do less frequently
  * a macro is used: run_with_period(milliseconds) { .... }
  */
-
+//redis 周期处理函数
 int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
     int j;
     UNUSED(eventLoop);
@@ -1232,9 +1232,11 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Start a scheduled AOF rewrite if this was requested by the user while
      * a BGSAVE was in progress. */
+    // 目前没子进程进行RDB && 目前没子进程进行AOF && AOF重写在待调度状态
     if (server.rdb_child_pid == -1 && server.aof_child_pid == -1 &&
         server.aof_rewrite_scheduled)
     {
+        //AOF重写
         rewriteAppendOnlyFileBackground();
     }
 
@@ -1341,10 +1343,12 @@ int serverCron(struct aeEventLoop *eventLoop, long long id, void *clientData) {
 
     /* Run the Redis Cluster cron. */
     run_with_period(100) {
+        //实现集群的周期性操作，这就包括了 Gossip 协议的通信。
         if (server.cluster_enabled) clusterCron();
     }
 
     /* Run the Sentinel timer if we are in sentinel mode. */
+    // 如果是哨兵，就触发这个时间时间处理函数
     if (server.sentinel_mode) sentinelTimer();
 
     /* Cleanup expired MIGRATE cached sockets. */
@@ -1670,6 +1674,7 @@ void initServerConfig(void) {
     server.master = NULL;
     server.cached_master = NULL;
     server.master_initial_offset = -1;
+    //主从复制：初始状态
     server.repl_state = REPL_STATE_NONE;
     server.repl_syncio_timeout = CONFIG_REPL_SYNCIO_TIMEOUT;
     server.repl_serve_stale_data = CONFIG_DEFAULT_SLAVE_SERVE_STALE_DATA;
@@ -2110,6 +2115,7 @@ void initServer(void) {
     }
     //为 EvictionPoolLRU 数组分配内存空间.默认是 16 个元素，也就是可以保存 16 个待淘汰的候选键值对。
     evictionPoolAlloc(); /* Initialize the LRU keys pool. */
+    //频道channel的初始化，创建一个keylistDictType类型的哈希表 其实就是value为list。其实key是频道的名称，Value是订阅该频道的订阅者列表
     server.pubsub_channels = dictCreate(&keylistDictType,NULL);
     server.pubsub_patterns = listCreate();
     listSetFreeMethod(server.pubsub_patterns,freePubsubPattern);
@@ -4058,7 +4064,7 @@ void memtest(size_t megabytes, int passes);
  * argv[0] contains "redis-sentinel". */
 int checkForSentinelMode(int argc, char **argv) {
     int j;
-
+    //有2种方式判断 server是不是哨兵。其实就是对应了启动哨兵的2种命令方式
     if (strstr(argv[0],"redis-sentinel") != NULL) return 1;
     for (j = 1; j < argc; j++)
         if (!strcmp(argv[j],"--sentinel")) return 1;
@@ -4264,6 +4270,7 @@ int main(int argc, char **argv) {
     char hashseed[16];
     getRandomHexChars(hashseed,sizeof(hashseed));
     dictSetHashFunctionSeed((uint8_t*)hashseed);
+    //判断启动的server是不是哨兵
     server.sentinel_mode = checkForSentinelMode(argc,argv);
     initServerConfig();
     moduleInitModulesSystem();
@@ -4278,8 +4285,11 @@ int main(int argc, char **argv) {
     /* We need to init sentinel right now as parsing the configuration file
      * in sentinel mode will have the effect of populating the sentinel
      * data structures with master nodes to monitor. */
+    // 哨兵模式下，初始化配置信息：命令集
     if (server.sentinel_mode) {
+        //主要是将当前 server 的端口号，改为哨兵实例专用的端口号 REDIS_SENTINEL_PORT
         initSentinelConfig();
+        //会把 server.commands 对应的命令表清空，然后在其中添加哨兵对应的命令
         initSentinel();
     }
 

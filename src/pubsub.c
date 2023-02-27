@@ -65,21 +65,22 @@ int pubsubSubscribeChannel(client *c, robj *channel) {
         retval = 1;
         incrRefCount(channel);
         /* Add the client to the channel -> list of clients hash table */
-        de = dictFind(server.pubsub_channels,channel);
-        if (de == NULL) {
-            clients = listCreate();
-            dictAdd(server.pubsub_channels,channel,clients);
-            incrRefCount(channel);
+        de = dictFind(server.pubsub_channels,channel);//在pubsub_channels哈希表中,根据key，也就是channel查找对应的列表
+        if (de == NULL) {//如果是没这个channel
+            clients = listCreate();//那就创建一个列表
+            dictAdd(server.pubsub_channels,channel,clients);//添加这个key:channel,value:订阅者List(此时订阅者还没加入list中)
+            incrRefCount(channel);//频道数量+1
         } else {
-            clients = dictGetVal(de);
+            clients = dictGetVal(de);//获取这个列表
         }
+        //订阅者加入list中
         listAddNodeTail(clients,c);
     }
     /* Notify the client */
     addReply(c,shared.mbulkhdr[3]);
     addReply(c,shared.subscribebulk);
     addReplyBulk(c,channel);
-    addReplyLongLong(c,clientSubscriptionsCount(c));
+    addReplyLongLong(c,clientSubscriptionsCount(c));//给订阅者返回成功订阅的频道数量
     return retval;
 }
 
@@ -220,7 +221,7 @@ int pubsubUnsubscribeAllPatterns(client *c, int notify) {
     }
     return count;
 }
-
+//第一入参：发布消息的频道，第二入参：发布消息的内容
 /* Publish a message */
 int pubsubPublishMessage(robj *channel, robj *message) {
     int receivers = 0;
@@ -229,7 +230,9 @@ int pubsubPublishMessage(robj *channel, robj *message) {
     listIter li;
 
     /* Send to clients listening for that channel */
+    //根据频道，去哈希表pubsub_channels中，获取对应的订阅者列表
     de = dictFind(server.pubsub_channels,channel);
+    //遍历订阅者列表
     if (de) {
         list *list = dictGetVal(de);
         listNode *ln;
@@ -242,6 +245,7 @@ int pubsubPublishMessage(robj *channel, robj *message) {
             addReply(c,shared.mbulkhdr[3]);
             addReply(c,shared.messagebulk);
             addReplyBulk(c,channel);
+            //发送消息
             addReplyBulk(c,message);
             receivers++;
         }
@@ -278,6 +282,7 @@ void subscribeCommand(client *c) {
     int j;
 
     for (j = 1; j < c->argc; j++)
+        //订阅频道
         pubsubSubscribeChannel(c,c->argv[j]);
     c->flags |= CLIENT_PUBSUB;
 }
@@ -315,7 +320,9 @@ void punsubscribeCommand(client *c) {
 }
 
 void publishCommand(client *c) {
+    //实际发布消息，返回订阅者的数量
     int receivers = pubsubPublishMessage(c->argv[1],c->argv[2]);
+    //如果是集群模式，那么在集群中发送publish命令
     if (server.cluster_enabled)
         clusterPropagatePublish(c->argv[1],c->argv[2]);
     else
